@@ -1,0 +1,5 @@
+Python 
+Tkinter
+Pandas
+XlsxWriter
+SQLite3
