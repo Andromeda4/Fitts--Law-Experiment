@@ -1,7 +1,7 @@
 
 # Fitts' Law Experiment
 
-This repository contains a Fitts' Law Experiment application developed using Python, Tkinter, and the graphics.py library. The main goal of this project is to study the effect of Fitts' Law on a user's ability to use a computer mouse in a series of trials. The experiment takes between 1 to 5 minutes to complete, and the user's performance data is saved in an Excel file for further analysis.
+This repository contains a Fitts' Law Experiment application developed using Python, Tkinter, and the graphics.py library. The main goal of this project is to study the effect of Fitts' Law on a user's ability to use a computer mouse in a series of trials. The experiment takes between 1 to 5 minutes to complete, and the user's performance data is saved in an Excel file and SQL database for further analysis.
 
 
 ## Table of Contents
