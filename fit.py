@@ -22,7 +22,7 @@ import sqlite3
 import datetime
 from tkinter import font
 import pandas as pd
-from graphics import GraphWin, Circle, Point, Text
+from graphics import GraphWin, Circle, Point, Text, Rectangle
 
 class FittsLawApp(tk.Tk):
     def __init__(self):
@@ -178,11 +178,14 @@ class InstructionsFrame(tk.Frame):
         self.title_label.pack(pady=(20, 10))
 
         self.instructions = (
-            "1. A red circle will appear in one of the four corners of the screen.\n"
-            "2. Move your mouse cursor to the red circle as quickly and accurately as possible.\n"
-            "3. The red circle will disappear once you reach it.\n"
-            "4. Repeat the process until the test is complete.\n"
-            "5. Click on the 'Begin' button to start the test."
+            "1. A green box will be located at the center of the screen.\n"
+            "2. Click on the green box to start a trial.\n"
+            "3. A red circle will appear either to the left or right of the green box.\n"
+            "4. Move your mouse cursor to the red circle as quickly and accurately as possible.\n"
+            "5. The red circle will disappear once you reach it.\n"
+            "6. Click on the green box again to start a new trial.\n"
+            "7. Repeat the process until the test is complete.\n"
+            "8. Click on the 'Begin' button to start the test."
         )
 
         self.text_widget = tk.Text(self, wrap=tk.WORD, padx=20, pady=20, width=80, height=12, font=("Times New Roman", 12))
@@ -205,21 +208,47 @@ class InstructionsFrame(tk.Frame):
         self.parent.deiconify()
         
 
+def update_progress_bar(progress, total_trials, name, progress_text, trial_count_text):
+    name_length = len(name)
+    progress_percentage = progress / total_trials
+    filled_chars = int(progress_percentage * name_length)
+    progress_name = name[:filled_chars] + "_" * (name_length - filled_chars)
+    progress_text.setText(progress_name)
+    trial_count_text.setText(f"{progress}/{total_trials} trials")
+    
+
 def run_fitts_law_experiment(start_time, name, age, gender, occupation, participant_id):
+    
+    script_dir = os.path.dirname(os.path.realpath(__file__))
 
     circle_diameters = [50, 75, 100, 125]
     circle_distances = [100, 200, 300, 400]
     circle_directions = ["left", "right"]
 
     num_trials_per_block = 32
-    num_blocks = 1
+    num_blocks = 10
+    total_trials = num_trials_per_block * num_blocks
 
     results = {"trials": [], "errors": [], "times": [], "error_status": []}
 
     win = GraphWin("Fitts' Law Experiment", 1280, 800)
 
-    MAX_TRIALS = 32
+    MAX_TRIALS = 320
 
+    green_box = Rectangle(Point(630, 390), Point(650, 410))
+    green_box.setFill('green')
+    green_box.draw(win)
+
+    progress_text = Text(Point(640, 30), "_" * len("Believe you can and you're halfway there. -Theodore Roosevelt"))
+    progress_text.setSize(14)
+    progress_text.setStyle("bold")
+    progress_text.draw(win)
+
+    trial_count_text = Text(Point(640, 60), "0/320 trials")
+    trial_count_text.setSize(12)
+    trial_count_text.draw(win)
+
+    trial_count = 0
     for block in range(num_blocks):
         print("Starting block", block + 1)
         trials = []
@@ -238,12 +267,21 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
             print("Starting trial", i + 1)
 
             if direction == "left":
-                x_position = 400 - distance
+                x_position = 640 - distance
             else:
-                x_position = 400 + distance
+                x_position = 640 + distance
 
-            circle = Circle(Point(x_position, 300), diameter / 2)
+            circle = Circle(Point(x_position, 400), diameter / 2)
             circle.setFill('red')
+
+            green_box_clicked = False
+            while not green_box_clicked:
+                click = win.checkMouse()
+                if click:
+                    x, y = click.getX(), click.getY()
+                    if 630 <= x <= 650 and 390 <= y <= 410:
+                        green_box_clicked = True
+
             circle.draw(win)
 
             start_trial_time = time.time()
@@ -257,7 +295,7 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
                 click = win.checkMouse()
                 if click:
                     x, y = click.getX(), click.getY()
-                    if abs(x - x_position) <= diameter / 2 and abs(y - 300) <= diameter / 2:
+                    if abs(x - x_position) <= diameter / 2 and abs(y - 400) <= diameter / 2:
                         clicked = True
                         success = True
                         print("Success")
@@ -279,10 +317,24 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
             results["error_status"].append(error)
             circle.undraw()
 
+            trial_count += 1
+            update_progress_bar(trial_count, total_trials, "Believe you can and you're halfway there. -Theodore Roosevelt", progress_text, trial_count_text)
+
     win.close()
 
-    connection = sqlite3.connect("fitts_law_experiment.db")
+    db_path = os.path.join(script_dir, "fitts_law_experiment.db")
+    connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trials (
+            id INTEGER PRIMARY KEY,
+            participant_id INTEGER,
+            trial_id TEXT,
+            time REAL,
+            error_status TEXT
+        )
+    """)
 
     for trial_id, trial_time, error_status in zip(results["trials"], results["times"], results["error_status"]):
         cursor.execute("""
@@ -293,7 +345,7 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
     connection.commit()
     connection.close()
 
-    df = pd.DataFrame({"trial": [t[:3] for t in trials[:MAX_TRIALS]], "trial_id": [t[3] for t in trials[:MAX_TRIALS]], "time": results["times"], "error_status": results["error_status"]})
+    df = pd.DataFrame({"trial": [t[:3] for t in results["trials"]], "trial_id": [t[3:] for t in results["trials"]], "time": results["times"], "error_status": results["error_status"]})
     
     df["mean_time"] = df.groupby("trial_id")["time"].transform("mean")
 
@@ -301,10 +353,11 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
     mean_mt = df.groupby("trial_id").mean()["time"].reset_index()
 
     filename = f"fitts_law_results_{name.replace(' ', '_')}.xlsx"
-    writer = pd.ExcelWriter(filename, engine="xlsxwriter")
+    file_path = os.path.join(script_dir, filename)
+    writer = pd.ExcelWriter(file_path, engine="xlsxwriter")
     workbook = writer.book
     worksheet = workbook.add_worksheet("Results")
-    
+
     worksheet.write("A1", "Participant Info")
     worksheet.write("A2", "Name")
     worksheet.write("A3", name)
@@ -314,32 +367,28 @@ def run_fitts_law_experiment(start_time, name, age, gender, occupation, particip
     worksheet.write("C3", gender)
     worksheet.write("D2", "Occupation")
     worksheet.write("D3", occupation)
-   
+
     modified_df = pd.DataFrame()
     modified_df["Number of trial executed"] = range(1, len(df) + 1)
-    modified_df["trial_id"] = df["trial_id"]
+    modified_df["Trial_3D"] = df["trial_id"]
     modified_df["mean_time"] = df["mean_time"]
     modified_df["error_status"] = df["error_status"]
 
     modified_df.to_excel(writer, sheet_name="Results", startrow=5, startcol=0, index=False)
 
-    
     for i, col in enumerate(modified_df.columns):
-        if i == 0:
-            continue  
-    if col == "trial_id":
-        col = "Trial_3D"  
-    worksheet.write(4, i, col)
-    
-    worksheet.write(40, 1, "Mean Movement Times")
+        if col == "trial_id":
+            col = "Trial_3D"  
+        worksheet.write(4, i, col)
+
+    worksheet.write(346, 0, "Mean Movement Times")
     for i, col in enumerate(mean_mt.columns):
-        if col == "trial_id" or col == "time":
-            continue  
-        worksheet.write(6 + len(modified_df), i, col)
-        for j, value in enumerate(mean_mt[col]):
-            if col == "trial":
-                value = str(value) 
-            worksheet.write(7 + len(modified_df) + j, i, value)
+        if col == "trial_id":
+            col = "Trial_3D"
+    worksheet.write(6 + len(modified_df), i, col)
+    for j, value in enumerate(mean_mt[col]):
+        worksheet.write(7 + len(modified_df) + j, i, value)
+
 
     mean_average = modified_df["mean_time"].mean()
     worksheet.write(6 + len(modified_df), 0, "Mean Average")
